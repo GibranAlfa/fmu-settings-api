@@ -1,5 +1,6 @@
 """Routes to add an FMU project to an existing session."""
 
+import json
 from pathlib import Path
 from textwrap import dedent
 from typing import Final
@@ -21,6 +22,7 @@ from fmu_settings_api.deps import (
     SessionDep,
 )
 from fmu_settings_api.models import FMUDirPath, FMUProject, Message
+from fmu_settings_api.models.project import ProjectConfigResponse
 from fmu_settings_api.models.common import Ok
 from fmu_settings_api.models.project import GlobalConfigPath
 from fmu_settings_api.services.user import remove_from_recent_projects
@@ -292,11 +294,7 @@ async def init_project(
     try:
         fmu_dir = init_fmu_directory(path)
         _ = await add_fmu_project_to_session(session.id, fmu_dir)
-        return FMUProject(
-            path=fmu_dir.base_path,
-            project_dir_name=fmu_dir.base_path.name,
-            config=fmu_dir.config.load(),
-        )
+        return _get_project_details(fmu_dir)
     except SessionNotFoundError as e:
         raise HTTPException(status_code=401, detail=str(e)) from e
     except PermissionError as e:
@@ -357,10 +355,24 @@ async def post_global_config(
 
         fmu_dir.set_config_value("masterdata", global_config.masterdata.model_dump())
 
+        if global_config_dict.get("model") and global_config.model is not None:
+            fmu_dir.set_config_value("model", global_config.model.model_dump())
+
+        if global_config_dict.get("access") and global_config.access is not None:
+            fmu_dir.set_config_value("access", global_config.access.model_dump())
+
+        if global_config_dict.get("stratigraphy") and global_config.stratigraphy is not None:
+            config_path = fmu_dir.config.path
+            config_data = json.loads(config_path.read_text(encoding="utf8"))
+            config_data["stratigraphy"] = global_config.stratigraphy.model_dump()
+            config_path.write_text(
+                json.dumps(config_data, indent=2, sort_keys=True), encoding="utf8"
+            )
+
         return Message(
             message=(
-                f"Global config masterdata at {global_config_path} was "
-                "successfully loaded into the project masterdata."
+                f"Global config data at {global_config_path} was successfully "
+                "loaded into the project configuration."
             ),
         )
     except FileNotFoundError as e:
@@ -511,13 +523,33 @@ async def patch_access(project_session: ProjectSessionDep, access: Access) -> Me
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 
+def _load_project_config(fmu_dir: ProjectFMUDirectory) -> ProjectConfigResponse:
+    """Loads the project configuration, including optional stratigraphy data."""
+    config = fmu_dir.config.load()
+    config_data = config.model_dump()
+    try:
+        raw_config = json.loads(
+            fmu_dir.read_text_file(fmu_dir.config.relative_path, encoding="utf8")
+        )
+    except FileNotFoundError:
+        raw_config = {}
+    except json.JSONDecodeError as e:
+        raise ValueError("Invalid JSON in project configuration") from e
+
+    config_data["stratigraphy"] = raw_config.get("stratigraphy")
+    try:
+        return ProjectConfigResponse.model_validate(config_data)
+    except ValidationError as e:
+        raise ValueError("Invalid project configuration") from e
+
+
 def _get_project_details(fmu_dir: ProjectFMUDirectory) -> FMUProject:
     """Returns the paths and configuration of a project FMU directory."""
     try:
         return FMUProject(
             path=fmu_dir.base_path,
             project_dir_name=fmu_dir.base_path.name,
-            config=fmu_dir.config.load(),
+            config=_load_project_config(fmu_dir),
         )
     except (FileNotFoundError, ValueError) as e:
         raise HTTPException(

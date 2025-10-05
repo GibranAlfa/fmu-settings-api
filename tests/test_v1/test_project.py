@@ -12,6 +12,7 @@ from uuid import UUID
 from fastapi import HTTPException, status
 from fastapi.testclient import TestClient
 from fmu.datamodels.fmu_results.fields import Access, Model, Smda
+from fmu.datamodels.fmu_results.global_configuration import Stratigraphy
 from fmu.settings._fmu_dir import (
     UserFMUDirectory,
 )
@@ -874,8 +875,10 @@ def test_load_global_config_from_default_path(
     assert response.status_code == status.HTTP_200_OK
     assert (
         response.json()["message"]
-        == f"Global config masterdata at {global_config_default_path} was "
-        "successfully loaded into the project masterdata."
+        == (
+            f"Global config data at {global_config_default_path} was "
+            "successfully loaded into the project configuration."
+        )
     )
 
     # Get project data and check that masterdata has been set
@@ -898,6 +901,12 @@ def test_load_global_config_from_default_path(
     assert (
         fmu_project.config.masterdata.smda.country[0].identifier
         == expected_smda_country
+    )
+
+    assert fmu_project.config.model == Model.model_validate(global_config["model"])
+    assert fmu_project.config.access == Access.model_validate(global_config["access"])
+    assert fmu_project.config.stratigraphy == Stratigraphy.model_validate(
+        global_config["stratigraphy"]
     )
 
 
@@ -930,8 +939,10 @@ def test_load_global_config_from_custom_path(
     assert response.status_code == status.HTTP_200_OK
     assert (
         response.json()["message"]
-        == f"Global config masterdata at {global_config_custom_path} was "
-        "successfully loaded into the project masterdata."
+        == (
+            f"Global config data at {global_config_custom_path} was "
+            "successfully loaded into the project configuration."
+        )
     )
 
     # Get project data and check that masterdata has been set
@@ -954,6 +965,12 @@ def test_load_global_config_from_custom_path(
     assert (
         fmu_project.config.masterdata.smda.country[0].identifier
         == expected_smda_country
+    )
+
+    assert fmu_project.config.model == Model.model_validate(global_config["model"])
+    assert fmu_project.config.access == Access.model_validate(global_config["access"])
+    assert fmu_project.config.stratigraphy == Stratigraphy.model_validate(
+        global_config["stratigraphy"]
     )
 
 
