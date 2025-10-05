@@ -1,5 +1,6 @@
 """Routes to add an FMU project to an existing session."""
 
+import json
 from pathlib import Path
 from textwrap import dedent
 from typing import Final
@@ -20,7 +21,7 @@ from fmu_settings_api.deps import (
     ProjectSessionDep,
     SessionDep,
 )
-from fmu_settings_api.models import FMUDirPath, FMUProject, Message
+from fmu_settings_api.models import FMUDirPath, FMULockInfo, FMULockStatus, FMUProject, Message
 from fmu_settings_api.models.common import Ok
 from fmu_settings_api.models.project import GlobalConfigPath
 from fmu_settings_api.services.user import remove_from_recent_projects
@@ -169,6 +170,61 @@ async def get_project(session: SessionDep) -> FMUProject:
         raise HTTPException(status_code=500, detail=str(e)) from e
 
     return _get_project_details(fmu_dir)
+
+
+@router.get(
+    "/lock",
+    response_model=FMULockStatus,
+    summary="Returns the lock status of the project .fmu directory.",
+    description=dedent(
+        """
+        Returns information about the lock file within the project .fmu directory.
+        If no lock is present an unlocked response is returned.
+        """
+    ),
+    responses={
+        **GetSessionResponses,
+        **ProjectResponses,
+    },
+)
+async def get_project_lock(project_session: ProjectSessionDep) -> FMULockStatus:
+    """Returns the lock status of the project .fmu directory."""
+
+    lock_path = project_session.project_fmu_directory.path / ".lock"
+    try:
+        if not lock_path.exists():
+            return FMULockStatus(locked=False)
+        raw_lock = lock_path.read_text(encoding="utf8")
+    except FileNotFoundError:
+        return FMULockStatus(locked=False)
+    except PermissionError as e:
+        raise HTTPException(
+            status_code=403,
+            detail=f"Permission denied accessing lock file at {lock_path}",
+        ) from e
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+    try:
+        lock_payload = json.loads(raw_lock)
+    except json.JSONDecodeError as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Invalid lock file at {lock_path}: {e.msg}",
+        ) from e
+
+    try:
+        lock_info = FMULockInfo.model_validate(lock_payload)
+    except ValidationError as e:
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "message": f"The lock file is not valid at path {lock_path}.",
+                "validation_errors": e.errors(),
+            },
+        ) from e
+
+    return FMULockStatus(locked=True, lock=lock_info)
 
 
 @router.get(

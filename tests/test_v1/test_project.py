@@ -282,6 +282,75 @@ async def test_get_project_already_in_session(
     assert session.project_fmu_directory.config.load() == fmu_project.config
 
 
+# GET project/lock #
+
+
+async def test_get_project_lock_when_unlocked(
+    client_with_project_session: TestClient,
+) -> None:
+    """Returns unlocked status when no lock file exists."""
+
+    response = client_with_project_session.get(f"{ROUTE}/lock")
+
+    assert response.status_code == status.HTTP_200_OK
+    assert response.json() == {"locked": False, "lock": None}
+
+
+async def test_get_project_lock_returns_lock_info(
+    client_with_project_session: TestClient, session_tmp_path: Path
+) -> None:
+    """Returns lock info when a valid lock file exists."""
+
+    lock_payload = {
+        "pid": 4321,
+        "hostname": "host",
+        "user": "someone",
+        "acquired_at": 123.45,
+        "expires_at": 678.9,
+        "version": "0.3.0",
+    }
+    lock_path = session_tmp_path / ".fmu" / ".lock"
+    lock_path.write_text(json.dumps(lock_payload))
+
+    response = client_with_project_session.get(f"{ROUTE}/lock")
+
+    assert response.status_code == status.HTTP_200_OK
+    assert response.json() == {"locked": True, "lock": lock_payload}
+
+
+async def test_get_project_lock_invalid_json(
+    client_with_project_session: TestClient, session_tmp_path: Path
+) -> None:
+    """Returns 500 when the lock file contains invalid JSON."""
+
+    lock_path = session_tmp_path / ".fmu" / ".lock"
+    lock_path.write_text("not json")
+
+    response = client_with_project_session.get(f"{ROUTE}/lock")
+
+    assert response.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR
+    assert response.json() == {
+        "detail": f"Invalid lock file at {lock_path}: Expecting value",
+    }
+
+
+async def test_get_project_lock_invalid_schema(
+    client_with_project_session: TestClient, session_tmp_path: Path
+) -> None:
+    """Returns 500 when the lock file does not match the schema."""
+
+    lock_path = session_tmp_path / ".fmu" / ".lock"
+    lock_path.write_text(json.dumps({"pid": 1}))
+
+    response = client_with_project_session.get(f"{ROUTE}/lock")
+
+    assert response.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR
+    detail = response.json()["detail"]
+    assert detail["message"].startswith("The lock file is not valid at path")
+    assert isinstance(detail["validation_errors"], list)
+    assert detail["validation_errors"]
+
+
 # POST project/ #
 
 

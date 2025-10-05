@@ -148,9 +148,13 @@ async def client_with_smda_session(session_id: str) -> AsyncGenerator[TestClient
 
 
 @pytest.fixture
-def session_tmp_path() -> Path:
+def session_tmp_path(tmp_path_mocked_home: Path) -> Path:
     """Returns the tmp_path equivalent from a mocked user .fmu dir."""
-    return UserFMUDirectory().path.parent.parent
+    try:
+        user_fmu_dir = init_user_fmu_directory()
+    except FileExistsError:
+        user_fmu_dir = UserFMUDirectory()
+    return user_fmu_dir.path.parent.parent
 
 
 @pytest.fixture
