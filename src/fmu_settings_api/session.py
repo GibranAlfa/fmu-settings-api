@@ -1,6 +1,7 @@
 """Functionality for managing sessions."""
 
-from dataclasses import asdict, dataclass
+from contextlib import suppress
+from dataclasses import asdict, dataclass, fields
 from datetime import UTC, datetime, timedelta
 from typing import Self
 from uuid import uuid4
@@ -42,6 +43,28 @@ class ProjectSession(Session):
     """A session with an FMU project attached."""
 
     project_fmu_directory: ProjectFMUDirectory
+
+
+def _cleanup_project_session(project_session: ProjectSession) -> None:
+    """Cleans up resources associated with a project session if supported."""
+
+    project_dir = project_session.project_fmu_directory
+    cleanup_methods = [
+        getattr(project_dir, "close", None),
+        getattr(project_dir, "cleanup", None),
+    ]
+
+    config = getattr(project_dir, "config", None)
+    if config is not None:
+        cleanup_methods.extend(
+            getattr(config, name, None)
+            for name in ("close", "cleanup", "release", "release_lock", "unlock")
+        )
+
+    for method in cleanup_methods:
+        if callable(method):
+            with suppress(Exception):
+                method()
 
 
 class SessionManager:
@@ -168,6 +191,7 @@ async def add_fmu_project_to_session(
     session = await session_manager.get_session(session_id)
 
     if isinstance(session, ProjectSession):
+        _cleanup_project_session(session)
         project_session = session
         project_session.project_fmu_directory = project_fmu_directory
     else:
@@ -193,11 +217,16 @@ async def remove_fmu_project_from_session(session_id: str) -> Session:
     """
     maybe_project_session = await session_manager.get_session(session_id)
 
-    if isinstance(maybe_project_session, Session):
+    if not isinstance(maybe_project_session, ProjectSession):
         return maybe_project_session
 
-    project_session_dict = asdict(maybe_project_session)
-    session = Session(**project_session_dict)
+    _cleanup_project_session(maybe_project_session)
+
+    session_kwargs = {
+        field.name: getattr(maybe_project_session, field.name)
+        for field in fields(Session)
+    }
+    session = Session(**session_kwargs)
     await session_manager._store_session(session_id, session)
     return session
 

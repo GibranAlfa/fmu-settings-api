@@ -1,7 +1,7 @@
 """Tests the /api/v1/session routes."""
 
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 import pytest
 from fastapi import status
@@ -18,6 +18,8 @@ from fmu_settings_api.session import (
     Session,
     SessionManager,
     SessionNotFoundError,
+    add_fmu_project_to_session,
+    remove_fmu_project_from_session,
 )
 
 ROUTE = "/api/v1/session"
@@ -198,12 +200,63 @@ async def test_get_session_from_project_path_returns_fmu_project(
     session = await session_manager.get_session(session_id)
     assert session is not None
     assert isinstance(session, ProjectSession)
-
     assert session.user_fmu_directory.path == user_fmu_dir.path
     assert session.user_fmu_directory.config.load() == user_fmu_dir.config.load()
 
     assert session.project_fmu_directory.path == project_fmu_dir.path
     assert session.project_fmu_directory.config.load() == project_fmu_dir.config.load()
+
+
+async def test_add_project_session_closes_existing_project(
+    tmp_path_mocked_home: Path, session_manager: SessionManager
+) -> None:
+    """Ensure replacing a project session cleans up the previous project."""
+
+    user_fmu_dir = init_user_fmu_directory()
+    session_id = await session_manager.create_session(user_fmu_dir)
+
+    first_project_path = tmp_path_mocked_home / "first"
+    first_project_path.mkdir()
+    first_project = init_fmu_directory(first_project_path)
+    await add_fmu_project_to_session(session_id, first_project)
+
+    project_close = Mock()
+    config_close = Mock()
+    setattr(first_project, "close", project_close)
+    setattr(first_project.config, "close", config_close)
+
+    second_project_path = tmp_path_mocked_home / "second"
+    second_project_path.mkdir()
+    second_project = init_fmu_directory(second_project_path)
+
+    await add_fmu_project_to_session(session_id, second_project)
+
+    project_close.assert_called_once_with()
+    config_close.assert_called_once_with()
+
+
+async def test_remove_project_session_closes_project(
+    tmp_path_mocked_home: Path, session_manager: SessionManager
+) -> None:
+    """Ensure removing a project session cleans up project resources."""
+
+    user_fmu_dir = init_user_fmu_directory()
+    session_id = await session_manager.create_session(user_fmu_dir)
+
+    project_path = tmp_path_mocked_home / "project"
+    project_path.mkdir()
+    project_dir = init_fmu_directory(project_path)
+    await add_fmu_project_to_session(session_id, project_dir)
+
+    project_close = Mock()
+    config_close = Mock()
+    setattr(project_dir, "close", project_close)
+    setattr(project_dir.config, "close", config_close)
+
+    await remove_fmu_project_from_session(session_id)
+
+    project_close.assert_called_once_with()
+    config_close.assert_called_once_with()
 
 
 async def test_getting_two_sessions_destroys_existing_session(
