@@ -1,6 +1,7 @@
 """Functionality for managing sessions."""
 
-from dataclasses import asdict, dataclass
+import logging
+from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime, timedelta
 from typing import Self
 from uuid import uuid4
@@ -10,8 +11,12 @@ from fmu.settings._fmu_dir import UserFMUDirectory
 from pydantic import BaseModel, SecretStr
 
 from fmu_settings_api.config import settings
+from fmu_settings_api.locks import FMUDirectoryLock
 from fmu_settings_api.models.common import AccessToken
 from fmu_settings_api.services.user import add_to_user_recent_projects
+
+
+logger = logging.getLogger(__name__)
 
 
 class SessionNotFoundError(ValueError):
@@ -42,6 +47,7 @@ class ProjectSession(Session):
     """A session with an FMU project attached."""
 
     project_fmu_directory: ProjectFMUDirectory
+    project_lock: FMUDirectoryLock | None = field(default=None, repr=False, compare=False)
 
 
 class SessionManager:
@@ -61,6 +67,13 @@ class SessionManager:
     def __init__(self: Self) -> None:
         """Initializes the session manager singleton."""
         self.storage = {}
+
+    def _release_lock(self: Self, session: Session | ProjectSession) -> None:
+        """Releases any project lock associated with a session."""
+
+        if isinstance(session, ProjectSession) and session.project_lock:
+            session.project_lock.release()
+            session.project_lock = None
 
     async def _store_session(
         self: Self, session_id: str, session: Session | ProjectSession
@@ -84,6 +97,7 @@ class SessionManager:
         """Destroys a session by its session id."""
         session = await self._retrieve_session(session_id)
         if session is not None:
+            self._release_lock(session)
             del self.storage[session_id]
 
     async def create_session(
@@ -169,11 +183,27 @@ async def add_fmu_project_to_session(
 
     if isinstance(session, ProjectSession):
         project_session = session
-        project_session.project_fmu_directory = project_fmu_directory
+        if project_session.project_fmu_directory.path != project_fmu_directory.path:
+            if project_session.project_lock:
+                project_session.project_lock.release()
+                project_session.project_lock = None
+            project_session.project_fmu_directory = project_fmu_directory
     else:
         project_session = ProjectSession(
             **asdict(session), project_fmu_directory=project_fmu_directory
         )
+
+    if project_session.project_lock is None:
+        lock = FMUDirectoryLock(project_session.project_fmu_directory.path)
+        if lock.acquire(session_id):
+            project_session.project_lock = lock
+        else:
+            logger.debug(
+                "Session %s using project at %s without lock", 
+                session_id,
+                project_session.project_fmu_directory.path,
+            )
+
     add_to_user_recent_projects(
         project_path=project_fmu_directory.base_path,
         user_dir=project_session.user_fmu_directory,
@@ -193,11 +223,21 @@ async def remove_fmu_project_from_session(session_id: str) -> Session:
     """
     maybe_project_session = await session_manager.get_session(session_id)
 
-    if isinstance(maybe_project_session, Session):
+    if not isinstance(maybe_project_session, ProjectSession):
         return maybe_project_session
 
-    project_session_dict = asdict(maybe_project_session)
-    session = Session(**project_session_dict)
+    if maybe_project_session.project_lock:
+        maybe_project_session.project_lock.release()
+        maybe_project_session.project_lock = None
+
+    session = Session(
+        id=maybe_project_session.id,
+        user_fmu_directory=maybe_project_session.user_fmu_directory,
+        created_at=maybe_project_session.created_at,
+        expires_at=maybe_project_session.expires_at,
+        last_accessed=maybe_project_session.last_accessed,
+        access_tokens=maybe_project_session.access_tokens,
+    )
     await session_manager._store_session(session_id, session)
     return session
 

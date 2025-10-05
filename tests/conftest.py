@@ -17,7 +17,10 @@ from fmu.settings._init import init_fmu_directory, init_user_fmu_directory
 from fmu_settings_api.__main__ import app
 from fmu_settings_api.config import settings
 from fmu_settings_api.deps import get_session
-from fmu_settings_api.session import SessionManager, add_fmu_project_to_session
+from fmu_settings_api.session import (
+    SessionManager,
+    add_fmu_project_to_session,
+)
 
 
 @pytest.fixture

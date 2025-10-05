@@ -8,6 +8,7 @@ from fmu.settings._fmu_dir import UserFMUDirectory
 from fmu.settings._init import init_user_fmu_directory
 
 from fmu_settings_api.config import HttpHeader, settings
+from fmu_settings_api.locks import require_directory_write_access
 from fmu_settings_api.interfaces.smda_api import SmdaAPI
 from fmu_settings_api.session import (
     ProjectSession,
@@ -38,10 +39,16 @@ async def ensure_user_fmu_directory() -> UserFMUDirectory:
         The user's UserFMUDirectory
     """
     try:
-        return UserFMUDirectory()
+        user_dir = UserFMUDirectory()
+        require_directory_write_access(user_dir.base_path)
+        require_directory_write_access(user_dir.path)
+        return user_dir
     except FileNotFoundError:
         try:
-            return init_user_fmu_directory()
+            user_dir = init_user_fmu_directory()
+            require_directory_write_access(user_dir.base_path)
+            require_directory_write_access(user_dir.path)
+            return user_dir
         except PermissionError as e:
             raise HTTPException(
                 status_code=403,

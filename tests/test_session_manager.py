@@ -6,7 +6,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 import pytest
-from fmu.settings._init import init_user_fmu_directory
+from fmu.settings._init import init_fmu_directory, init_user_fmu_directory
 from pydantic import SecretStr
 
 from fmu_settings_api.config import settings
@@ -14,11 +14,15 @@ from fmu_settings_api.models.common import AccessToken
 from fmu_settings_api.session import (
     SessionManager,
     SessionNotFoundError,
+    add_fmu_project_to_session,
     add_access_token_to_session,
     create_fmu_session,
     destroy_fmu_session,
+    remove_fmu_project_from_session,
+    ProjectSession,
     session_manager,
 )
+from fmu_settings_api.locks import FMUDirectoryLock
 
 
 def test_session_manager_init() -> None:
@@ -147,3 +151,71 @@ async def test_add_invalid_access_token_to_session(
     token = AccessToken(id="foo", key=SecretStr("secret"))
     with pytest.raises(ValueError, match="Invalid access token id"):
         await add_access_token_to_session(session_id, token)
+
+
+async def test_add_project_session_acquires_lock(
+    session_manager: SessionManager, tmp_path_mocked_home: Path
+) -> None:
+    """Adding a project to a session acquires a lock file."""
+
+    user_fmu_dir = init_user_fmu_directory()
+    session_id = await session_manager.create_session(user_fmu_dir)
+
+    project_path = tmp_path_mocked_home / "project"
+    project_path.mkdir()
+    project_dir = init_fmu_directory(project_path)
+
+    project_session = await add_fmu_project_to_session(session_id, project_dir)
+    assert isinstance(project_session, ProjectSession)
+    lock_path = project_dir.path / ".lock"
+    assert lock_path.exists()
+    assert project_session.project_lock is not None
+    assert project_session.project_lock.is_acquired
+
+    await remove_fmu_project_from_session(session_id)
+    assert not lock_path.exists()
+
+
+async def test_add_project_session_when_locked(
+    session_manager: SessionManager, tmp_path_mocked_home: Path
+) -> None:
+    """Adding a project does not fail when the lock is already held."""
+
+    user_fmu_dir = init_user_fmu_directory()
+    session_id = await session_manager.create_session(user_fmu_dir)
+
+    project_path = tmp_path_mocked_home / "project"
+    project_path.mkdir()
+    project_dir = init_fmu_directory(project_path)
+
+    external_lock = FMUDirectoryLock(project_dir.path)
+    assert external_lock.acquire("external-session")
+
+    try:
+        project_session = await add_fmu_project_to_session(session_id, project_dir)
+        assert isinstance(project_session, ProjectSession)
+        assert project_session.project_lock is None
+    finally:
+        external_lock.release()
+
+    await remove_fmu_project_from_session(session_id)
+
+
+async def test_project_lock_released_on_destroy(
+    session_manager: SessionManager, tmp_path_mocked_home: Path
+) -> None:
+    """Destroying a session releases any held project lock."""
+
+    user_fmu_dir = init_user_fmu_directory()
+    session_id = await session_manager.create_session(user_fmu_dir)
+
+    project_path = tmp_path_mocked_home / "project"
+    project_path.mkdir()
+    project_dir = init_fmu_directory(project_path)
+
+    await add_fmu_project_to_session(session_id, project_dir)
+    lock_path = project_dir.path / ".lock"
+    assert lock_path.exists()
+
+    await session_manager.destroy_session(session_id)
+    assert not lock_path.exists()

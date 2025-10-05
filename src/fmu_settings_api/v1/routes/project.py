@@ -20,6 +20,7 @@ from fmu_settings_api.deps import (
     ProjectSessionDep,
     SessionDep,
 )
+from fmu_settings_api.locks import FMULockPermissionError, require_directory_write_access
 from fmu_settings_api.models import FMUDirPath, FMUProject, Message
 from fmu_settings_api.models.common import Ok
 from fmu_settings_api.models.project import GlobalConfigPath
@@ -156,6 +157,11 @@ async def get_project(session: SessionDep) -> FMUProject:
         await add_fmu_project_to_session(session.id, fmu_dir)
     except SessionNotFoundError as e:
         raise HTTPException(status_code=401, detail=str(e)) from e
+    except FMULockPermissionError as e:
+        raise HTTPException(
+            status_code=403,
+            detail="Permission denied accessing .fmu",
+        ) from e
     except PermissionError as e:
         raise HTTPException(
             status_code=403,
@@ -241,10 +247,18 @@ async def post_project(session: SessionDep, fmu_dir_path: FMUDirPath) -> FMUProj
         raise HTTPException(status_code=404, detail=f"Path {path} does not exist")
 
     try:
+        fmu_candidate = path if path.name == ".fmu" else path / ".fmu"
+        if fmu_candidate.is_dir():
+            require_directory_write_access(fmu_candidate)
         fmu_dir = get_fmu_directory(path)
         await add_fmu_project_to_session(session.id, fmu_dir)
     except SessionNotFoundError as e:
         raise HTTPException(status_code=401, detail=str(e)) from e
+    except FMULockPermissionError as e:
+        raise HTTPException(
+            status_code=403,
+            detail=f"Permission denied accessing .fmu at {path}",
+        ) from e
     except PermissionError as e:
         raise HTTPException(
             status_code=403,
@@ -290,6 +304,8 @@ async def init_project(
     """Initializes .fmu at 'path' and returns its paths and configuration."""
     path = fmu_dir_path.path
     try:
+        if path.is_dir():
+            require_directory_write_access(path)
         fmu_dir = init_fmu_directory(path)
         _ = await add_fmu_project_to_session(session.id, fmu_dir)
         return FMUProject(
@@ -355,6 +371,8 @@ async def post_global_config(
             global_config_dict
         )
 
+        if fmu_dir.path.exists():
+            require_directory_write_access(fmu_dir.path)
         fmu_dir.set_config_value("masterdata", global_config.masterdata.model_dump())
 
         return Message(
@@ -436,6 +454,8 @@ async def patch_masterdata(
     """Saves SMDA masterdata to the project .fmu directory."""
     fmu_dir = project_session.project_fmu_directory
     try:
+        if fmu_dir.path.exists():
+            require_directory_write_access(fmu_dir.path)
         fmu_dir.set_config_value("masterdata.smda", smda_masterdata.model_dump())
         return Message(message=f"Saved SMDA masterdata to {fmu_dir.path}")
     except PermissionError as e:
@@ -468,6 +488,8 @@ async def patch_model(project_session: ProjectSessionDep, model: Model) -> Messa
     """Saves model data to the project .fmu directory."""
     fmu_dir = project_session.project_fmu_directory
     try:
+        if fmu_dir.path.exists():
+            require_directory_write_access(fmu_dir.path)
         fmu_dir.set_config_value("model", model.model_dump())
         return Message(message=f"Saved model data to {fmu_dir.path}")
     except PermissionError as e:
@@ -500,6 +522,8 @@ async def patch_access(project_session: ProjectSessionDep, access: Access) -> Me
     """Saves access data to the project .fmu directory."""
     fmu_dir = project_session.project_fmu_directory
     try:
+        if fmu_dir.path.exists():
+            require_directory_write_access(fmu_dir.path)
         fmu_dir.set_config_value("access", access.model_dump())
         return Message(message=f"Saved access data to {fmu_dir.path}")
     except PermissionError as e:
