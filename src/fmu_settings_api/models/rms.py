@@ -19,3 +19,30 @@ class RMSProjectPathsResult(BaseResponseModel):
 
     results: list[RMSProjectPath]
     """List of absolute paths to RMS projects within the FMU project."""
+
+
+class RMSVersion(BaseResponseModel):
+    """RMS version specification for opening projects."""
+
+    version: str = "14.2.2"
+    """The RMS version to use for opening projects."""
+
+
+class StratigraphicZone(BaseResponseModel):
+    """A stratigraphic zone from an RMS project."""
+
+    name: str
+    """Name of the zone."""
+
+    top: str
+    """Name of the horizon at the top of the zone."""
+
+    base: str
+    """Name of the horizon at the base of the zone."""
+
+
+class StratigraphicColumn(BaseResponseModel):
+    """Stratigraphic column containing zones from an RMS project."""
+
+    zones: list[StratigraphicZone]
+    """List of zones in the stratigraphic column."""

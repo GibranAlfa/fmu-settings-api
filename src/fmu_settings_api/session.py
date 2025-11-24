@@ -8,6 +8,7 @@ from uuid import uuid4
 from fmu.settings import ProjectFMUDirectory
 from fmu.settings._fmu_dir import UserFMUDirectory
 from pydantic import BaseModel, SecretStr
+from runrms.api import RmsApiProxy
 
 from fmu_settings_api.config import settings
 from fmu_settings_api.models.common import AccessToken
@@ -51,6 +52,7 @@ class ProjectSession(Session):
 
     project_fmu_directory: ProjectFMUDirectory
     lock_errors: LockErrors = field(default_factory=LockErrors)
+    rms_project: RmsApiProxy | None = None
 
 
 class SessionManager:
@@ -226,6 +228,29 @@ async def add_fmu_project_to_session(
     return project_session
 
 
+async def add_rms_project_to_session(
+    session_id: str,
+    rms_api: RmsApiProxy,
+) -> ProjectSession:
+    """Adds an opened RMS project to the session.
+
+    Returns:
+        The updated ProjectSession
+
+    Raises:
+        SessionNotFoundError: If no valid session was found
+    """
+    session = await session_manager.get_session(session_id)
+
+    if not isinstance(session, ProjectSession):
+        raise SessionNotFoundError("No FMU project directory open")
+
+    session.rms_project = rms_api
+
+    await session_manager._store_session(session_id, session)
+    return session
+
+
 async def try_acquire_project_lock(session_id: str) -> ProjectSession:
     """Attempts to acquire the project lock for a session.
 
@@ -305,6 +330,26 @@ async def remove_fmu_project_from_session(session_id: str) -> Session:
     project_session_dict.pop("project_fmu_directory", None)
     project_session_dict.pop("lock_errors", None)
     session = Session(**project_session_dict)
+    await session_manager._store_session(session_id, session)
+    return session
+
+
+async def remove_rms_project_from_project_session(session_id: str) -> ProjectSession:
+    """Removes (closes) an open RMS project from a project session.
+
+    Returns:
+        The updated ProjectSession with rms_project set to None
+
+    Raises:
+        SessionNotFoundError: If no valid session was found
+    """
+    session = await session_manager.get_session(session_id)
+
+    if not isinstance(session, ProjectSession):
+        raise SessionNotFoundError("No FMU project directory open")
+
+    session.rms_project = None
+
     await session_manager._store_session(session_id, session)
     return session
 
