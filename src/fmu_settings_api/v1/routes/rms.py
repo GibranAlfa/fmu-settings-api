@@ -4,7 +4,12 @@ from fastapi import APIRouter, HTTPException, status
 
 from fmu_settings_api.deps.rms import OpenedRmsProjectDep, RmsServiceDep
 from fmu_settings_api.deps.session import ProjectSessionDep
-from fmu_settings_api.models.rms import RMSVersion, StratigraphicColumn
+from fmu_settings_api.models.rms import (
+    HorizonList,
+    RMSVersion,
+    StratigraphicColumn,
+    WellList,
+)
 from fmu_settings_api.session import (
     add_rms_project_to_session,
     remove_rms_project_from_project_session,
@@ -110,4 +115,58 @@ async def get_stratigraphic_column(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to retrieve stratigraphic column: {str(e)}",
+        ) from e
+
+
+@router.get(
+    "/horizons",
+    response_model=HorizonList,
+    summary="Get all horizons from the open RMS project",
+    responses=GetSessionResponses,
+)
+async def get_horizons(
+    rms_service: RmsServiceDep,
+    opened_rms_project: OpenedRmsProjectDep,
+) -> HorizonList:
+    """Retrieve all horizons from the currently open RMS project.
+
+    This endpoint requires an RMS project to be open in the session.
+    Use the POST /open endpoint first to open an RMS project.
+
+    Returns:
+        List of horizons in the project
+    """
+    try:
+        return rms_service.get_horizons(opened_rms_project)
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to retrieve horizons: {str(e)}",
+        ) from e
+
+
+@router.get(
+    "/wells",
+    response_model=WellList,
+    summary="Get all wells from the open RMS project",
+    responses=GetSessionResponses,
+)
+async def get_wells(
+    rms_service: RmsServiceDep,
+    opened_rms_project: OpenedRmsProjectDep,
+) -> WellList:
+    """Retrieve all wells from the currently open RMS project.
+
+    This endpoint requires an RMS project to be open in the session.
+    Use the POST /open endpoint first to open an RMS project.
+
+    Returns:
+        List of wells in the project
+    """
+    try:
+        return rms_service.get_wells(opened_rms_project)
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to retrieve wells: {str(e)}",
         ) from e
