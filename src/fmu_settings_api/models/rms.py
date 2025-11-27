@@ -21,13 +21,6 @@ class RMSProjectPathsResult(BaseResponseModel):
     """List of absolute paths to RMS projects within the FMU project."""
 
 
-class RMSVersion(BaseResponseModel):
-    """RMS version specification for opening projects."""
-
-    version: str = "14.2.2"
-    """The RMS version to use for opening projects."""
-
-
 class StratigraphicZone(BaseResponseModel):
     """A stratigraphic zone from an RMS project."""
 

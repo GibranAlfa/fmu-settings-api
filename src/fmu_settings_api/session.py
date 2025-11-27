@@ -1,5 +1,6 @@
 """Functionality for managing sessions."""
 
+import contextlib
 from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime, timedelta
 from typing import Self
@@ -245,6 +246,10 @@ async def add_rms_project_to_session(
     if not isinstance(session, ProjectSession):
         raise SessionNotFoundError("No FMU project directory open")
 
+    if session.rms_project is not None:
+        with contextlib.suppress(Exception):
+            session.rms_project.close()
+
     session.rms_project = rms_api
 
     await session_manager._store_session(session_id, session)
@@ -329,6 +334,7 @@ async def remove_fmu_project_from_session(session_id: str) -> Session:
     project_session_dict = asdict(maybe_project_session)
     project_session_dict.pop("project_fmu_directory", None)
     project_session_dict.pop("lock_errors", None)
+    project_session_dict.pop("rms_project", None)
     session = Session(**project_session_dict)
     await session_manager._store_session(session_id, session)
     return session
@@ -347,6 +353,10 @@ async def remove_rms_project_from_project_session(session_id: str) -> ProjectSes
 
     if not isinstance(session, ProjectSession):
         raise SessionNotFoundError("No FMU project directory open")
+
+    if session.rms_project is not None:
+        with contextlib.suppress(Exception):
+            session.rms_project.close()
 
     session.rms_project = None
 

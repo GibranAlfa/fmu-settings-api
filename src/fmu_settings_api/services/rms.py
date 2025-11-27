@@ -23,7 +23,9 @@ def get_system_config_path() -> Path:
     komodo_release = os.environ.get("KOMODO_RELEASE")
     if not komodo_release:
         raise RuntimeError("KOMODO_RELEASE environment variable is not set")
-    return Path(f"/prog/res/komodo/{komodo_release}/root/lib/python3.11/site-packages/rms_sys/config/runrms.yml")
+    return Path(
+        f"/prog/res/komodo/{komodo_release}/root/lib/python3.11/site-packages/rms_sys/config/runrms.yml"
+    )
 
 
 class RmsService:
@@ -49,7 +51,9 @@ class RmsService:
         if rms_project_path is None:
             raise ValueError("RMS project path is not set in config file.")
 
-        rms_proxy = get_rmsapi(version=version, config_path=str(get_system_config_path()))
+        rms_proxy = get_rmsapi(
+            version=version, config_path=str(get_system_config_path())
+        )
         return rms_proxy.Project.open(str(rms_project_path), readonly=True)
 
     def get_strat_column(self, rms_project: RmsApiProxy) -> StratigraphicColumn:

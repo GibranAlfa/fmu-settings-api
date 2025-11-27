@@ -1,16 +1,17 @@
 """Routes for interacting with RMS projects."""
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, HTTPException
 
-from fmu_settings_api.deps.rms import OpenedRmsProjectDep, RmsServiceDep
+from fmu_settings_api.deps.rms import RmsProjectDep, RmsServiceDep
 from fmu_settings_api.deps.session import ProjectSessionDep
+from fmu_settings_api.models.common import Message
 from fmu_settings_api.models.rms import (
     HorizonList,
-    RMSVersion,
     StratigraphicColumn,
     WellList,
 )
 from fmu_settings_api.session import (
+    SessionNotFoundError,
     add_rms_project_to_session,
     remove_rms_project_from_project_session,
 )
@@ -20,16 +21,15 @@ router = APIRouter(prefix="/rms", tags=["rms"])
 
 
 @router.post(
-    "/open",
-    status_code=status.HTTP_200_OK,
+    "/",
+    response_model=Message,
     summary="Open an RMS project and store it in the session",
     responses=GetSessionResponses,
 )
 async def open_rms_project(
     rms_service: RmsServiceDep,
     project_session: ProjectSessionDep,
-    rms_version: RMSVersion | None = None,
-) -> dict[str, str]:
+) -> Message:
     """Open an RMS project and store it in the session.
 
     The RMS project path must be configured in the project's .fmu config file.
@@ -45,34 +45,27 @@ async def open_rms_project(
     Returns:
         A success message
     """
-    if rms_version is None:
-        rms_version = RMSVersion()
-
     try:
-        opened_project = rms_service.open_rms_project(version=rms_version.version)
+        opened_project = rms_service.open_rms_project()
         await add_rms_project_to_session(project_session.id, opened_project)
-        return {"message": "RMS project opened successfully"}
+        return Message(message="RMS project opened successfully")
+    except SessionNotFoundError as e:
+        raise HTTPException(status_code=401, detail=str(e)) from e
     except ValueError as e:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(e),
-        ) from e
+        raise HTTPException(status_code=400, detail=str(e)) from e
     except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to open RMS project: {str(e)}",
-        ) from e
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 @router.delete(
-    "/close",
-    status_code=status.HTTP_200_OK,
+    "/",
+    response_model=Message,
     summary="Close the RMS project in the session",
     responses=GetSessionResponses,
 )
 async def close_rms_project(
     project_session: ProjectSessionDep,
-) -> dict[str, str]:
+) -> Message:
     """Close the RMS project that is currently open in the session.
 
     This removes the RMS project reference from the session. The project
@@ -83,12 +76,11 @@ async def close_rms_project(
     """
     try:
         await remove_rms_project_from_project_session(project_session.id)
-        return {"message": "RMS project closed successfully"}
+        return Message(message="RMS project closed successfully")
+    except SessionNotFoundError as e:
+        raise HTTPException(status_code=401, detail=str(e)) from e
     except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to close RMS project: {str(e)}",
-        ) from e
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 @router.get(
@@ -99,7 +91,7 @@ async def close_rms_project(
 )
 async def get_stratigraphic_column(
     rms_service: RmsServiceDep,
-    opened_rms_project: OpenedRmsProjectDep,
+    opened_rms_project: RmsProjectDep,
 ) -> StratigraphicColumn:
     """Retrieve the stratigraphic column from the currently open RMS project.
 
@@ -112,10 +104,7 @@ async def get_stratigraphic_column(
     try:
         return rms_service.get_strat_column(opened_rms_project)
     except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to retrieve stratigraphic column: {str(e)}",
-        ) from e
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 @router.get(
@@ -126,7 +115,7 @@ async def get_stratigraphic_column(
 )
 async def get_horizons(
     rms_service: RmsServiceDep,
-    opened_rms_project: OpenedRmsProjectDep,
+    opened_rms_project: RmsProjectDep,
 ) -> HorizonList:
     """Retrieve all horizons from the currently open RMS project.
 
@@ -139,10 +128,7 @@ async def get_horizons(
     try:
         return rms_service.get_horizons(opened_rms_project)
     except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to retrieve horizons: {str(e)}",
-        ) from e
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 @router.get(
@@ -153,7 +139,7 @@ async def get_horizons(
 )
 async def get_wells(
     rms_service: RmsServiceDep,
-    opened_rms_project: OpenedRmsProjectDep,
+    opened_rms_project: RmsProjectDep,
 ) -> WellList:
     """Retrieve all wells from the currently open RMS project.
 
@@ -166,7 +152,4 @@ async def get_wells(
     try:
         return rms_service.get_wells(opened_rms_project)
     except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to retrieve wells: {str(e)}",
-        ) from e
+        raise HTTPException(status_code=500, detail=str(e)) from e

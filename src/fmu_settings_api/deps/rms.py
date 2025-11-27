@@ -52,4 +52,4 @@ async def get_opened_rms_project(
     return project_session.rms_project
 
 
-OpenedRmsProjectDep = Annotated[RmsApiProxy, Depends(get_opened_rms_project)]
+RmsProjectDep = Annotated[RmsApiProxy, Depends(get_opened_rms_project)]
