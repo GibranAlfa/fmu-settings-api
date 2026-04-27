@@ -3,6 +3,7 @@
 import asyncio
 from collections.abc import Sequence
 
+import httpx
 from fmu.datamodels.common.masterdata import (
     CoordinateSystem,
     CountryItem,
@@ -12,6 +13,7 @@ from fmu.datamodels.common.masterdata import (
 )
 
 from fmu_settings_api.interfaces import SmdaAPI
+from fmu_settings_api.logging import get_logger
 from fmu_settings_api.models.smda import (
     SmdaField,
     SmdaFieldSearchResult,
@@ -20,6 +22,8 @@ from fmu_settings_api.models.smda import (
     SmdaStratigraphicUnitsResult,
     StratigraphicUnit,
 )
+
+logger = get_logger(__name__)
 
 
 class SmdaService:
@@ -190,9 +194,23 @@ class SmdaService:
                 f"{strat_column_identifier}"
             )
 
+        surface_identifiers: set[str] = set()
+        for strat_unit_data in strat_unit_results:
+            for identifier in (strat_unit_data["top"], strat_unit_data["base"]):
+                if identifier:
+                    surface_identifiers.add(identifier)
+
+        surface_uuids = await self._get_surface_uuids(surface_identifiers)
+
         strat_unit_items = []
         for strat_unit_data in strat_unit_results:
-            strat_unit_item = StratigraphicUnit.model_validate(strat_unit_data)
+            strat_unit_item = StratigraphicUnit.model_validate(
+                {
+                    **strat_unit_data,
+                    "top_uuid": surface_uuids.get(strat_unit_data["top"]),
+                    "base_uuid": surface_uuids.get(strat_unit_data["base"]),
+                }
+            )
             if strat_unit_item not in strat_unit_items:
                 strat_unit_items.append(strat_unit_item)
         return SmdaStratigraphicUnitsResult(stratigraphic_units=strat_unit_items)
@@ -270,3 +288,40 @@ class SmdaService:
             if crs_item not in crs_items:
                 crs_items.append(crs_item)
         return crs_items
+
+    async def _get_surface_uuids(self, identifiers: set[str]) -> dict[str, str]:
+        """Queries surface UUIDs keyed by strat surface name identifier."""
+        unique_identifiers = sorted(set(identifiers))
+
+        if not unique_identifiers:
+            return {}
+
+        surface_uuids: dict[str, str] = {}
+        surface_responses = await asyncio.gather(
+            *(self._smda.surface(identifier) for identifier in unique_identifiers),
+            return_exceptions=True,
+        )
+
+        for identifier, response in zip(
+            unique_identifiers, surface_responses, strict=True
+        ):
+            if isinstance(response, httpx.HTTPError | TimeoutError):
+                logger.warning(
+                    "smda_surface_lookup_failed",
+                    identifier=identifier,
+                    error=str(response),
+                )
+                continue
+
+            if isinstance(response, BaseException):
+                raise response
+
+            surface_results = response.json()["data"]["results"]
+            if not surface_results:
+                continue
+
+            surface_uuid = surface_results[0].get("uuid")
+            if surface_uuid is not None:
+                surface_uuids[identifier] = surface_uuid
+
+        return surface_uuids
