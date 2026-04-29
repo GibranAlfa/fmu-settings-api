@@ -7,6 +7,7 @@ from unittest.mock import patch
 
 import pytest
 from fmu.datamodels.context.mappings import (
+    DataSystem,
     RelationType,
     StratigraphyIdentifierMapping,
     StratigraphyMappings,
@@ -60,9 +61,7 @@ def test_get_cache_diff_returns_structured_scalar_diff(
 
 def test_get_cache_diff_returns_mappings_list_diff(
     fmu_dir: ProjectFMUDirectory,
-    make_stratigraphy_mapping: Callable[
-        [str, str, RelationType], StratigraphyIdentifierMapping
-    ],
+    make_stratigraphy_mapping: Callable[..., StratigraphyIdentifierMapping],
     make_stratigraphy_mappings: Callable[[], StratigraphyMappings],
 ) -> None:
     """Test cache diff returns added/removed changes for stratigraphy mappings."""
@@ -75,10 +74,13 @@ def test_get_cache_diff_returns_mappings_list_diff(
             current_stratigraphy[0],
             current_stratigraphy[2],
             current_stratigraphy[3],
+            current_stratigraphy[4],
             make_stratigraphy_mapping(
                 "TopNew",
-                "NEW GP. Top",
-                RelationType.primary,
+                "TopViking",
+                RelationType.alias,
+                source_system=DataSystem.rms,
+                target_system=DataSystem.rms,
             ),
         ]
     )

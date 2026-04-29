@@ -1,22 +1,15 @@
 """Service for managing mappings in .fmu and business logic."""
 
-from collections import defaultdict
-from collections.abc import Iterable
 from pathlib import Path
-from typing import TYPE_CHECKING, Self, cast
+from typing import Self
 
 from fmu.datamodels.context.mappings import (
-    AnyIdentifierMapping,
     DataSystem,
     MappingType,
-    StratigraphyIdentifierMapping,
     StratigraphyMappings,
 )
 from fmu.settings import ProjectFMUDirectory
-from fmu.settings.models.mappings import MappingGroup
-
-if TYPE_CHECKING:
-    from uuid import UUID
+from fmu.settings.models.mappings import Mappings
 
 
 class MappingsService:
@@ -46,137 +39,69 @@ class MappingsService:
             stratigraphy_mappings
         )
 
-    def build_mapping_groups(
-        self,
-        mappings: Iterable[AnyIdentifierMapping],
-    ) -> list[MappingGroup]:
-        """Build MappingGroup objects from mappings sharing the same target context.
-
-        Groups by target_id, target_uuid (if set), mapping_type, target_system,
-        and source_system.
-        """
-        grouped: defaultdict[
-            tuple[str, UUID | None, MappingType, DataSystem, DataSystem],
-            list[AnyIdentifierMapping],
-        ] = defaultdict(list)
-
-        for mapping in mappings:
-            grouped[
-                (
-                    mapping.target_id,
-                    mapping.target_uuid,
-                    mapping.mapping_type,
-                    mapping.target_system,
-                    mapping.source_system,
-                )
-            ].append(mapping)
-
-        return [
-            MappingGroup(
-                target_id=group_target_id,
-                target_uuid=group_target_uuid,
-                mapping_type=group_mapping_type,
-                target_system=group_target_system,
-                source_system=group_source_system,
-                mappings=batch,
-            )
-            for (
-                group_target_id,
-                group_target_uuid,
-                group_mapping_type,
-                group_target_system,
-                group_source_system,
-            ), batch in grouped.items()
-        ]
-
-    def get_mappings_by_systems(
-        self,
-        mapping_type: MappingType,
-        source_system: DataSystem,
-        target_system: DataSystem,
-    ) -> list[MappingGroup]:
-        """Get mappings for specific mapping type, source and target systems.
-
-        Filters mappings by the specified source_system and target_system,
-        then groups them by target context (target_id, target_uuid, mapping_type,
-        target_system, and source_system).
+    def get_mappings(self, mapping_type: MappingType) -> Mappings:
+        """Get mappings for a specific mapping type.
 
         Raises:
             ValueError: If mapping type is unsupported
         """
         if mapping_type == MappingType.stratigraphy:
-            all_mappings = self.list_stratigraphy_mappings()
-        else:
-            raise ValueError(f"Mapping type '{mapping_type}' is not yet supported")
+            return Mappings(stratigraphy=self.list_stratigraphy_mappings())
 
-        filtered = [
-            mapping
-            for mapping in all_mappings
-            if mapping.source_system == source_system
-            and mapping.target_system == target_system
-        ]
+        raise ValueError(f"Mapping type '{mapping_type}' is not yet supported")
 
-        return self.build_mapping_groups(filtered)
-
-    def update_mappings_by_systems(
+    def get_mappings_by_source_system(
         self,
         mapping_type: MappingType,
         source_system: DataSystem,
-        target_system: DataSystem,
-        new_mappings: list[AnyIdentifierMapping],
-    ) -> None:
-        """Update mappings for specific mapping type, source and target systems.
-
-        Replaces all mappings for the specified type/source/target combination
-        while preserving mappings for other combinations.
-
-        Validates that:
-        - All mappings match the specified mapping_type, source_system,
-          and target_system
-        - New mappings form a valid MappingGroup
+    ) -> Mappings:
+        """Get mappings filtered by mapping type and source system.
 
         Raises:
-            ValueError: If validation fails or mapping type is unsupported
+            ValueError: If mapping type is unsupported
         """
-        for mapping in new_mappings:
-            if mapping.mapping_type != mapping_type:
-                raise ValueError(
-                    f"Mapping type mismatch: expected '{mapping_type}' but "
-                    f"found '{mapping.mapping_type}'"
-                )
-            if mapping.source_system != source_system:
-                raise ValueError(
-                    f"Source system mismatch: expected '{source_system}' but "
-                    f"found '{mapping.source_system}'"
-                )
-            if mapping.target_system != target_system:
-                raise ValueError(
-                    f"Target system mismatch: expected '{target_system}' but "
-                    f"found '{mapping.target_system}'"
-                )
-
-        # Validate that new_mappings form a valid MappingsGroup
-        self.build_mapping_groups(new_mappings)
-
         if mapping_type == MappingType.stratigraphy:
-            try:
-                all_mappings = self.list_stratigraphy_mappings()
-            except FileNotFoundError:
-                all_mappings = StratigraphyMappings(root=[])
-
-            other_mappings = [
-                mapping
-                for mapping in all_mappings
-                if not (
-                    mapping.source_system == source_system
-                    and mapping.target_system == target_system
-                )
-            ]
-
-            updated_mappings = StratigraphyMappings(
-                root=other_mappings
-                + cast("list[StratigraphyIdentifierMapping]", new_mappings)
+            filtered_mappings = StratigraphyMappings(
+                root=[
+                    mapping
+                    for mapping in self.list_stratigraphy_mappings()
+                    if mapping.source_system == source_system
+                ]
             )
-            self.update_stratigraphy_mappings(updated_mappings)
-        else:
-            raise ValueError(f"Mapping type '{mapping_type}' is not yet supported")
+            return Mappings(stratigraphy=filtered_mappings)
+
+        raise ValueError(f"Mapping type '{mapping_type}' is not yet supported")
+
+    def update_mappings_by_source_system(
+        self,
+        mapping_type: MappingType,
+        source_system: DataSystem,
+        mappings: StratigraphyMappings,
+    ) -> None:
+        """Replace mappings for a specific mapping type and source system.
+
+        Raises:
+            ValueError: If mapping type is unsupported
+        """
+        if mapping_type == MappingType.stratigraphy:
+            if any(mapping.source_system != source_system for mapping in mappings):
+                raise ValueError(
+                    "All mappings in the request body must use the requested "
+                    f"source system '{source_system.value}'"
+                )
+
+            try:
+                other_mappings = [
+                    mapping
+                    for mapping in self.list_stratigraphy_mappings()
+                    if mapping.source_system != source_system
+                ]
+            except FileNotFoundError:
+                other_mappings = []
+
+            self.update_stratigraphy_mappings(
+                StratigraphyMappings(root=[*mappings, *other_mappings])
+            )
+            return
+
+        raise ValueError(f"Mapping type '{mapping_type}' is not yet supported")

@@ -31,8 +31,8 @@ classifiers = [
 dynamic = ["version"]
 dependencies = [
     "fastapi",
-    "fmu-datamodels",
-    "fmu-settings>=0.28.0",
+    "fmu-datamodels>=0.21.2",  # unmappable relation, no equivalent relation
+    "fmu-settings>=0.29.0",  # current Mappings schema
     "httpx",
     "packaging",
     "pydantic",

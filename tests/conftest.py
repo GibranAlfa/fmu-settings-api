@@ -118,7 +118,7 @@ def make_stratigraphy_mapping() -> Callable[..., StratigraphyIdentifierMapping]:
 
     def _make_stratigraphy_mapping(  # noqa: PLR0913
         source_id: str,
-        target_id: str,
+        target_id: str | None,
         relation_type: RelationType,
         source_system: DataSystem = DataSystem.rms,
         target_system: DataSystem = DataSystem.smda,
@@ -147,23 +147,38 @@ def make_stratigraphy_mappings(
             root=[
                 make_stratigraphy_mapping(
                     "TopVolantis",
-                    "VOLANTIS GP. Top",
+                    "TopVolantis",
                     RelationType.primary,
+                    source_system=DataSystem.rms,
+                    target_system=DataSystem.rms,
                 ),
                 make_stratigraphy_mapping(
                     "TopVOLANTIS",
-                    "VOLANTIS GP. Top",
+                    "TopVolantis",
                     RelationType.alias,
+                    source_system=DataSystem.rms,
+                    target_system=DataSystem.rms,
                 ),
                 make_stratigraphy_mapping(
+                    "TopVolantis",
                     "VOLANTIS GP. Top",
-                    "VOLANTIS GP. Top",
-                    RelationType.equivalent,
+                    RelationType.primary,
+                    source_system=DataSystem.rms,
+                    target_system=DataSystem.smda,
+                ),
+                make_stratigraphy_mapping(
+                    "TopViking",
+                    "TopViking",
+                    RelationType.primary,
+                    source_system=DataSystem.rms,
+                    target_system=DataSystem.rms,
                 ),
                 make_stratigraphy_mapping(
                     "TopViking",
                     "VIKING GP. Top",
                     RelationType.primary,
+                    source_system=DataSystem.rms,
+                    target_system=DataSystem.smda,
                 ),
             ]
         )
