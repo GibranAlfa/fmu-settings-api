@@ -6,6 +6,7 @@ from types import SimpleNamespace
 from typing import Any, cast
 from unittest.mock import MagicMock, patch
 
+import pytest
 from fastapi import FastAPI, HTTPException, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.testclient import TestClient
@@ -18,6 +19,7 @@ from fmu_settings_api.__main__ import (
     logging_request_validation_exception_handler,
     run_server,
 )
+from fmu_settings_api.config import settings
 from fmu_settings_api.middleware.logging import LoggingMiddleware
 from fmu_settings_api.models import Ok
 from fmu_settings_api.session import (
@@ -72,8 +74,12 @@ def test_add_frontend_serves_spa_without_hiding_api_routes(tmp_path: Path) -> No
     assert asset_response.text == "app"
 
 
-def test_run_server_adds_frontend(tmp_path: Path) -> None:
-    """Add the frontend when its directory is supplied."""
+@pytest.mark.parametrize("frontend_directory_is_set", [False, True])
+def test_run_server_configures_frontend(
+    tmp_path: Path, frontend_directory_is_set: bool
+) -> None:
+    """Add the frontend only when its directory is supplied."""
+    frontend_directory = tmp_path if frontend_directory_is_set else None
     with (
         patch("fmu_settings_api.__main__.UserFMUDirectory") as user_directory,
         patch("fmu_settings_api.__main__.UserSessionLogManager"),
@@ -83,9 +89,54 @@ def test_run_server_adds_frontend(tmp_path: Path) -> None:
         patch("fmu_settings_api.__main__.add_frontend") as add_frontend_mock,
     ):
         user_directory.return_value.path = tmp_path
-        run_server(frontend_directory=tmp_path, reload=True)
+        run_server(
+            frontend_directory=frontend_directory,
+            reload=True,
+        )
 
-    add_frontend_mock.assert_called_once_with(test_app, tmp_path)
+    if frontend_directory_is_set:
+        add_frontend_mock.assert_called_once_with(test_app, tmp_path)
+    else:
+        add_frontend_mock.assert_not_called()
+    assert uvicorn_run.call_args.kwargs["port"] == 8000
+
+
+@pytest.mark.parametrize(
+    ("enable_telemetry", "run_id"),
+    [(False, None), (True, "run-123")],
+)
+def test_run_server_configures_telemetry(
+    tmp_path: Path,
+    enable_telemetry: bool,
+    run_id: str | None,
+) -> None:
+    """Configure optional telemetry and pass it to logging setup."""
+    telemetry = MagicMock()
+    with (
+        patch("fmu_settings_api.__main__.UserFMUDirectory") as user_directory,
+        patch("fmu_settings_api.__main__.UserSessionLogManager"),
+        patch("fmu_settings_api.__main__.setup_logging") as setup_logging_mock,
+        patch(
+            "fmu_settings_api.__main__.setup_telemetry", return_value=telemetry
+        ) as setup_telemetry_mock,
+        patch("fmu_settings_api.__main__.uvicorn.run") as uvicorn_run,
+        patch("fmu_settings_api.__main__.app") as test_app,
+    ):
+        user_directory.return_value.path = tmp_path
+        run_server(
+            reload=True,
+            enable_telemetry=enable_telemetry,
+            run_id=run_id,
+        )
+
+    if enable_telemetry:
+        setup_telemetry_mock.assert_called_once_with(settings, run_id=run_id)
+        assert test_app.state.telemetry is telemetry
+        assert setup_logging_mock.call_args.kwargs["telemetry"] is telemetry
+    else:
+        setup_telemetry_mock.assert_not_called()
+        assert test_app.state.telemetry is None
+        assert setup_logging_mock.call_args.kwargs["telemetry"] is None
     assert uvicorn_run.call_args.kwargs["port"] == 8000
 
 
@@ -124,6 +175,19 @@ def test_shutdown_releases_project_lock() -> None:
         lock.release.assert_called_once()
     finally:
         session_manager.storage = original_storage
+
+
+def test_shutdown_closes_telemetry() -> None:
+    """Ensure lifespan teardown closes caller-owned telemetry."""
+    telemetry = MagicMock()
+    app.state.telemetry = telemetry
+
+    try:
+        with TestClient(app):
+            telemetry.shutdown.assert_not_called()
+        telemetry.shutdown.assert_called_once_with()
+    finally:
+        del app.state.telemetry
 
 
 def test_http_exception_logs_request_failed_details() -> None:
