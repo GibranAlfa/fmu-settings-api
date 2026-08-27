@@ -1,7 +1,5 @@
 """Service for managing FMU project operations and business logic."""
 
-import getpass
-from datetime import UTC, datetime
 from pathlib import Path
 
 from fmu.datamodels.common import Access, Smda
@@ -12,12 +10,15 @@ from fmu.settings.models.project_config import (
     RmsHorizon,
     RmsStratigraphicZone,
     RmsWell,
-    ValidationRecord,
 )
 
 from fmu_settings_api.interfaces import SumoApi
 from fmu_settings_api.models import FMUProject
-from fmu_settings_api.models.project import CacheRetention, GlobalConfigPath, SumoAsset
+from fmu_settings_api.models.project import (
+    CacheRetention,
+    GlobalConfigPath,
+    SumoAsset,
+)
 
 from .rms import RmsService
 
@@ -94,13 +95,7 @@ class ProjectService:
     def update_masterdata(self, smda_masterdata: Smda) -> None:
         """Save SMDA masterdata to the project FMU directory."""
         self._fmu_dir.set_config_value("masterdata.smda", smda_masterdata.model_dump())
-        record = ValidationRecord(
-            last_validated_at=datetime.now(UTC),
-            last_validated_by=getpass.getuser(),
-        )
-        self._fmu_dir.set_config_value(
-            "validation.masterdata_smda", record.model_dump()
-        )
+        self._fmu_dir.update_validation_metadata("masterdata_smda")
 
     def update_model(self, model: Model) -> None:
         """Save model data to the project FMU directory."""
@@ -131,6 +126,7 @@ class ProjectService:
             {
                 "rms.path": rms_project_path,
                 "rms.version": rms_version,
+                "validation.rms_project": None,
             }
         )
 
@@ -165,14 +161,18 @@ class ProjectService:
             {
                 "rms.zones": [zone.model_dump() for zone in zones],
                 "rms.horizons": [horizon.model_dump() for horizon in horizons],
+                "validation.rms_project": None,
             }
         )
 
     def update_rms_wells(self, wells: list[RmsWell]) -> None:
         """Save RMS wells to the project FMU directory."""
         self._ensure_rms_config_exists()
-        self._fmu_dir.set_config_value(
-            "rms.wells", [well.model_dump() for well in wells]
+        self._fmu_dir.update_config(
+            {
+                "rms.wells": [well.model_dump() for well in wells],
+                "validation.rms_project": None,
+            }
         )
 
     def get_sumo_assets(self) -> list[SumoAsset]:
