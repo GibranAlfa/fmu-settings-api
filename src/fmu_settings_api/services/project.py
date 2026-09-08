@@ -186,6 +186,6 @@ class ProjectService:
             }
         )
 
-    def get_sumo_assets(self) -> list[SumoAsset]:
+    def get_sumo_assets(self) -> SumoAsset:
         """Get the Sumo assets."""
         return SumoApi().get_assets()

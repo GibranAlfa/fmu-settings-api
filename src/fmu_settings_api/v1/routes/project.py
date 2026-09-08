@@ -598,7 +598,7 @@ async def get_project(session_service: SessionServiceDep) -> FMUProject:
 
 @router.get(
     "/sumo_assets",
-    response_model=list[SumoAsset],
+    response_model=SumoAsset,
     summary="Returns a list of Sumo assets.",
     description=dedent(
         """
@@ -608,7 +608,7 @@ async def get_project(session_service: SessionServiceDep) -> FMUProject:
     ),
     responses={**GetSessionResponses, **SumoAssetsResponses},
 )
-async def get_sumo_assets(project_service: ProjectServiceDep) -> list[SumoAsset]:
+async def get_sumo_assets(project_service: ProjectServiceDep) -> SumoAsset:
     """Returns a list of the Sumo assets."""
     try:
         return project_service.get_sumo_assets()

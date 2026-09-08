@@ -5,7 +5,7 @@ from typing import Any
 
 from fmu.settings.models.lock_info import LockInfo
 from fmu.settings.models.project_config import ProjectConfig
-from pydantic import Field
+from pydantic import Field, RootModel
 
 from fmu_settings_api.models.common import BaseResponseModel
 
@@ -91,17 +91,8 @@ class LockStatus(BaseResponseModel):
     """Error message from the last attempt to refresh the lock."""
 
 
-class SumoAsset(BaseResponseModel):
-    """A valid asset in Sumo."""
-
-    name: str
-    """Name of the asset in Sumo."""
-
-    code: str
-    """Code of the asset in Sumo."""
-
-    roleprefix: str
-    """Roleprefix of the asset in Sumo."""
+class SumoAsset(RootModel[dict[str, list[str]]]):
+    """Sumo asset names mapped to their permissions."""
 
 
 class ValidationMismatch(BaseResponseModel):

@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Final, Self
 
 from pydantic import TypeAdapter
+from sumo.wrapper import SumoClient
 
 from fmu_settings_api.models.project import SumoAsset
 
@@ -14,13 +15,12 @@ class SumoApi:
 
     def __init__(self: Self) -> None:
         """Initializes the SumoApi interface."""
-        self._asset_filepath: Final[Path] = Path(__file__).parent / Path(
-            "sumo_assets.json"
-        )
+        self._sumo: Final[SumoClient] = SumoClient(env="dev")
 
-    def get_assets(self: Self) -> list[SumoAsset]:
+    def get_assets(self: Self) -> SumoAsset:
         """Gets the Sumo assets."""
-        return self._read_assets_from_file(self._asset_filepath)
+        assets = self._sumo.get("/userassets").json()
+        return TypeAdapter(SumoAsset).validate_python(assets)
 
     @staticmethod
     def _read_assets_from_file(filepath: Path) -> list[SumoAsset]:
