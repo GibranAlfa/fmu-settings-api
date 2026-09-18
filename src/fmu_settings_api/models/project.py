@@ -92,16 +92,10 @@ class LockStatus(BaseResponseModel):
 
 
 class SumoAsset(BaseResponseModel):
-    """A valid asset in Sumo."""
+    """A Sumo asset available to the user."""
 
     name: str
-    """Name of the asset in Sumo."""
-
-    code: str
-    """Code of the asset in Sumo."""
-
-    roleprefix: str
-    """Roleprefix of the asset in Sumo."""
+    """Name of the asset in Sumo the user has write access to."""
 
 
 class ValidationMismatch(BaseResponseModel):
