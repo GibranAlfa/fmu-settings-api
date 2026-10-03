@@ -31,6 +31,12 @@ from fmu.settings import (
 )
 from fmu.settings.models._enums import ChangeType
 from fmu.settings.models.change_info import ChangeInfo
+from fmu.settings.models.diff import (
+    ListFieldDiff,
+    ListUpdatedEntry,
+    ResourceDiff,
+    ScalarFieldDiff,
+)
 from fmu.settings.models.log import Log
 from pydantic import ValidationError
 from pytest import MonkeyPatch
@@ -311,8 +317,43 @@ async def test_get_project_already_in_session(
 # GET project/changelog #
 
 
+def test_changelog_openapi_includes_optional_structured_diff() -> None:
+    """Clients can distinguish legacy entries from scalar and list diffs."""
+    schema = app.openapi()["components"]["schemas"]["ChangeInfo"]
+    assert "structured_diff" not in schema["required"]
+    alternatives = schema["properties"]["structured_diff"]["anyOf"]
+    assert alternatives[1] == {"type": "null"}
+    assert alternatives[0]["items"]["anyOf"] == [
+        {"$ref": "#/components/schemas/ScalarFieldDiff"},
+        {"$ref": "#/components/schemas/ListFieldDiff"},
+    ]
+
+
+@pytest.mark.parametrize(
+    "differences",
+    [
+        None,
+        [],
+        [ScalarFieldDiff(field_path="model.name", before="old", after="new")],
+        [
+            ListFieldDiff(
+                field_path="wellbore.root",
+                added=[],
+                removed=[],
+                updated=[
+                    ListUpdatedEntry(
+                        key=("wellbore", "rms", "simulator", "A"),
+                        before={"source_id": "A", "target_id": "B"},
+                        after={"source_id": "A", "target_id": "C"},
+                    )
+                ],
+            )
+        ],
+    ],
+)
 async def test_get_changelog_success(
     client_with_project_session: TestClient,
+    differences: list[ResourceDiff] | None,
 ) -> None:
     """Test 200 returns the changelog provided by the changelog service."""
     changelog_service = Mock()
@@ -323,6 +364,7 @@ async def test_get_changelog_success(
                 user="test_user",
                 path=Path("/tmp/project/.fmu"),
                 change="Updated field names",
+                structured_diff=differences,
                 hostname="localhost",
                 file="config.json",
                 key="changelog_test",
@@ -338,6 +380,13 @@ async def test_get_changelog_success(
     response_data = response.json()
     assert len(response_data) == 1
     assert response_data[0]["key"] == "changelog_test"
+    assert response_data[0]["structured_diff"] == (
+        None
+        if differences is None
+        else json.loads(changelog_service.get_changelog.return_value.model_dump_json())[
+            0
+        ]["structured_diff"]
+    )
     changelog_service.get_changelog.assert_called_once_with(
         change_type=None,
         filter_=None,
